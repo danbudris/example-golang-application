@@ -1,0 +1,63 @@
+# Debug build stage - includes Delve debugger
+FROM golang:1.21-alpine AS builder
+
+# Install build dependencies and Delve
+RUN apk add --no-cache git make && \
+    go install github.com/go-delve/delve/cmd/dlv@latest
+
+# Set working directory
+WORKDIR /build
+
+# Copy go mod files
+COPY go.mod ./
+
+# Download dependencies
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build the application with debug symbols (no stripping)
+# We'll use dlv to run the binary, so we build it normally with debug info
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -gcflags="all=-N -l" \
+    -o /app/example-golang-application \
+    ./cmd/server
+
+# Final stage - includes Delve
+FROM golang:1.21-alpine
+
+# Install ca-certificates (required for HTTPS)
+RUN apk --no-cache add ca-certificates
+
+# Copy Delve binary from builder stage
+COPY --from=builder /go/bin/dlv /usr/local/bin/dlv
+
+# Verify Delve is available
+RUN dlv version
+
+# Set working directory
+WORKDIR /app
+
+# Copy binary from builder
+COPY --from=builder /app/example-golang-application .
+
+# Make sure Delve can attach to the process
+# Allow ptrace for Delve
+RUN apk add --no-cache libc6-compat
+
+# Expose ports: 8080 for HTTP, 2345 for Delve debugger
+EXPOSE 8080 2345
+
+# Run with Delve in headless mode, listening on all interfaces
+# --listen=0.0.0.0:2345 allows connection from host
+# --headless runs without UI
+# --api-version=2 uses the latest API
+# --accept-multiclient allows multiple debugger connections
+# --check-go-version=false avoids version check issues in containers
+CMD ["dlv", "exec", "/app/example-golang-application", \
+     "--listen=0.0.0.0:2345", \
+     "--headless=true", \
+     "--api-version=2", \
+     "--accept-multiclient", \
+     "--check-go-version=false"]

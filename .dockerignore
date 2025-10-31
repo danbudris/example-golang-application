@@ -1,0 +1,12 @@
+bin/
+dist/
+.git/
+.gitignore
+*.md
+coverage.out
+coverage.html
+k8s/*.yaml
+!k8s/*.template
+.env
+.DS_Store
+*.log
